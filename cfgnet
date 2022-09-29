@@ -657,6 +657,7 @@ def sorted_ipaddres(sorted_file):
     for ip_parsed in ipv6_sorted:
         print(str(ip_parsed))
     return True
+    
 def do():
     args = parse_argument()
     if args.sort:
