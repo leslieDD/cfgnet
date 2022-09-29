@@ -1,0 +1,681 @@
+#!/usr/bin/python3
+import sys
+import re
+import argparse
+import ipaddress
+import logging
+import asyncio
+import getpass
+from pprint import pprint
+from pickletools import uint8
+import asyncssh
+from atomic import AtomicLong
+
+tmpl_address = "8.8.8.8"
+DEBUG=False
+
+logging.basicConfig(level=logging.WARNING,
+    format='%(asctime)s [%(lineno)d] %(levelname)s # %(message)s',
+    datefmt='%Y-%m-%d %M:%S')
+
+def parse_argument():
+    parser = argparse.ArgumentParser(description='给服务器配置IP地址，IP的地址将会配置到出网网口上或者指定的网口或者连接上\n默认为替换，可以指定增加或者减少', 
+        formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('-A', '--askpass', action='store_true', default=False, help="指定SSH密码")
+    parser.add_argument('-p', '--pool', type=str, default='', help='指定存地址池的文件名，一个IP一行，只支持v4')
+    parser.add_argument('-t', '--type', type=int, default=0, choices=[4, 6], help='指定地址类型，4(=v4)或者6(=v6)，默认根据其它选项的内容进行推测')
+    parser.add_argument('-n', '--network', type=str, default='', help='指定IP的网段，地址类型必须和选定的类型一致')
+    parser.add_argument('-g', '--gateway', type=str, default='', help='指定IP的网关，地址类型必须和选定的类型一致')
+    parser.add_argument('-s', '--start', type=str, default='', help="起点地址，地址类型必须和选定的类型一致")
+    parser.add_argument('-d', '--dns', type=str, default='', help='指定DNS地址，以英文逗号分隔\n' + 
+                '如果内容为-，则不配置DNS\n' + 
+                '为空值时，会根据其它选择的地址类型选定默认的DNS值\n' + 
+                '默认v4的DNS是：114.114.114.114,1.2.4.8\n' +
+                '默认v6的DNS是：2001:4860:4860::8888,2001:4860:4860::8844\n')
+    parser.add_argument('-E', '--lexclude', type=str, default='', help='生成IP时，从中间排除的IP地址列表，以英文逗号分开')
+    parser.add_argument('-F', '--fexclude', type=str, default='', help='生成IP时，从中间排除的IP地址列表\n从文件读取，一行一个IP')
+    parser.add_argument('-e', '--eth', type=str, default='', help="网卡设备名称")
+    parser.add_argument('-c', '--cname', type=str, default='', help="nmcli的连接名称")
+    parser.add_argument('--add', action='store_true', default=False, help="增加")
+    parser.add_argument('--sub', action='store_true', default=False, help="减少")
+    parser.add_argument('-C', '--concurrency', type=int, default=6, help="并发数，默认为6")
+    parser.add_argument('-S', '--sort', type=str, help="过滤出指定文件中的IPv4/IPv6，并排序输出后退出程序")
+    parser.add_argument('-D', '--debug', action='store_true', default=False, help='输出详细日志')
+    return parser.parse_args()
+
+def read(filename):
+    content = ""
+    try:
+        with open(filename, encoding="utf8", mode='r') as fd:
+            content = fd.read()
+    except Exception as e:
+        logging.error("文件打开出错：%s" % e)
+        return None
+    return content
+
+def check_ipaddrV6(addr):
+    try:
+        parsed = ipaddress.ip_address(addr)
+        if parsed.version != 6:
+            return None
+    except Exception as e:
+        return None
+    return parsed
+
+def check_ipaddrV4(addr):
+    try:
+        parsed = ipaddress.ip_address(addr)
+        if parsed.version != 4:
+            return None
+    except Exception as e:
+        return None
+    return parsed
+
+def check_ipaddr(addr):
+    try:
+        parsed = ipaddress.ip_address(addr)
+    except Exception as e:
+        return None
+    return parsed
+
+def generate_addrV2(params_parsed):
+    if not params_parsed['network']:
+        while True:
+            yield None
+
+    def gen_asc():
+        base_addr = None
+        if params_parsed['starting_addr'] is not None:
+            base_addr = params_parsed['starting_addr']
+        elif params_parsed['gateway'] is not None:
+            base_addr = params_parsed['gateway'] + 1
+        else:
+            base_addr = params_parsed['network'].network_address + 1
+        index = 0
+        while True:
+            try:
+                ipvx_addr = base_addr + index
+                index += 1
+                if ipvx_addr >= params_parsed['network'].broadcast_address:
+                    break  # 已经超出广播地址
+                if ipvx_addr == params_parsed['gateway']:
+                    continue
+                for excludeIP in params_parsed['exclude']:
+                    if excludeIP == ipvx_addr:
+                        break
+                else:
+                    yield ipvx_addr
+            except:
+                break
+    def gen_desc():
+        base_addr = None
+        if params_parsed['starting_addr'] is not None:
+            base_addr = params_parsed['starting_addr']
+        elif params_parsed['gateway'] is not None:
+            base_addr = params_parsed['gateway'] + 1
+        else:
+            base_addr = params_parsed['network'].broadcast_address - 1
+        index = 0
+        while True:
+            try:
+                ipvx_addr = base_addr - index
+                index += 1
+                if ipvx_addr <= params_parsed['network'].network_address:
+                    break # 已经比网络地址更小
+                if ipvx_addr == params_parsed['gateway']:
+                    continue
+                for excludeIP in params_parsed['exclude']:
+                    print(str(excludeIP), str(ipvx_addr))
+                    if excludeIP == ipvx_addr:
+                        break
+                else:
+                    yield ipvx_addr
+            except:
+                break
+    if params_parsed['network'].network_address + 1 == params_parsed['gateway']:
+        yield from gen_asc()
+    elif params_parsed['network'].broadcast_address - 1 == params_parsed['gateway']:
+        yield from gen_desc()
+    else:
+        yield from gen_asc()
+        yield from gen_desc()
+
+    while True:
+        yield None
+
+def generate_addrV1(params_parsed):
+    if not params_parsed['network']:
+        while True:
+            yield None
+
+    base_addr = None
+    if params_parsed['starting_addr'] is not None:
+        base_addr = params_parsed['starting_addr']
+    else:
+        base_addr = params_parsed['network'].network_address + 1
+    index = 0
+    while True:
+        ipvx_addr = base_addr + index
+        index += 1
+        if ipvx_addr == params_parsed['gateway'] or ipvx_addr == params_parsed['network'].broadcast_address:
+            continue
+        elif ipvx_addr > params_parsed['network'].broadcast_address:
+            break
+        for excludeIP in params_parsed['exclude']:
+            if excludeIP == ipvx_addr:
+                continue
+        yield ipvx_addr
+    while True:
+        yield None
+
+def parsed_params(args):
+    global DEBUG
+    DEBUG = args.debug
+
+    if DEBUG:
+        pprint(args)
+
+    if args.concurrency == 0:
+        logging.error("消费工作协程数必须大于等于1")
+        return
+    
+    if args.add is True and args.sub is True:
+        logging.error("--add和--sub不能同时存在，只能选择其中一个")
+        return
+    
+    if args.cname != '' and args.eth != '':
+        logging.error("--eth和--cname不能同时存在，只能选择其中一个")
+        return
+ 
+    params_parsed = {}
+    params_parsed['device'] = args.eth
+    params_parsed['cname'] = args.cname
+    params_parsed['net_type'] = args.type
+    params_parsed['add'] = args.add
+    params_parsed['sub'] = args.sub
+    params_parsed['askpass'] = args.askpass
+
+    if args.pool is None:
+        logging.error("需要指定地址池文件")
+        return
+    if args.pool == '':
+        logging.error("指定了一个无效的地址池文件")
+        return
+
+    exclude = []
+    if args.lexclude is not None and args.lexclude != '':
+        for lexcIP in args.lexclude.split(","):
+            lexcIP = lexcIP.strip()
+            parsed = check_ipaddr(lexcIP)
+            if parsed is None:
+                logging.error("指定的排除地址不是合法的IP地址：%s" % lexcIP)
+                return
+            if parsed.version != params_parsed['net_type']:
+                logging.error("指定的排除地址类型必须一致：%s" % str(parsed))
+                return
+            exclude.append(parsed)
+    
+    if args.fexclude is not None and args.fexclude != '':
+        exclude_pool = read(args.fexclude)
+        if exclude_pool is None:
+            return
+        for fexcIP in exclude_pool.split():
+            fexcIP = fexcIP.strip()
+            if fexcIP == "":
+                continue
+            parsed = check_ipaddr(fexcIP)
+            if parsed is None:
+                logging.error("指定的排除地址不是合法的IP地址：%s" % fexcIP)
+                return
+            if parsed.version != params_parsed['net_type']:
+                logging.error("指定的排除地址类型必须一致：%s" % str(parsed))
+                return
+            exclude.append(parsed)
+    params_parsed['exclude'] = exclude
+
+    pool_content = read(args.pool)
+    if pool_content is None:
+        return
+    pool_hosts = {}
+    for row in pool_content.split("\n"):  # v4地址
+        row = row.strip()
+        if row == "" or row.startswith("#"):
+            continue
+        if len(row.split()) != 1:
+            continue
+        c_host, c_port, c_user = parse_host(row)
+        ip_parsed = check_ipaddrV4(c_host)
+        if ip_parsed is None:
+            logging.error("指定池{}中的IP不合法: {}".format(args.pool, c_host))
+            return
+        if c_host not in pool_hosts:
+            pool_hosts[c_host] = {
+            'host': c_host,
+            'port': c_port,
+            'user': c_user,
+            "host_parsed": ip_parsed,
+        }
+    if len(pool_hosts) == 0:
+        logging.warning("池中没有IP地址")
+        return
+    pool_parsed = {}
+    for _, val in pool_hosts.items():
+        pool_parsed[val['host_parsed']] = val
+    pool_parsed_sorted = []
+    for item in sorted(pool_parsed):
+        pool_parsed_sorted.append(pool_parsed[item])
+    params_parsed['pool'] = pool_parsed_sorted
+
+    network = args.network
+    if network is not None and network != '':
+        if "/" not in network:
+            logging.error("指定的网段必须包含掩码")
+            return
+        network_parsed = None
+        try:
+            network_parsed = ipaddress.ip_network(network.strip())
+            if params_parsed['net_type'] == 0:
+                params_parsed['net_type'] = network_parsed.version
+            elif params_parsed['net_type'] != network_parsed.version:
+                raise
+        except Exception as e:
+            logging.error("网段要求是合法的IPv{}网段地址，并且地址类型必须一致".format(params_parsed['net_type']))
+            return 
+        params_parsed['network'] = network_parsed
+    else:
+        params_parsed['network'] = None
+
+    gateway = args.gateway
+    if gateway is not None and gateway != '':
+        gateway_parsed = None
+        try:
+            gateway_parsed = check_ipaddr(gateway.strip())
+            if params_parsed['net_type'] == 0:
+                params_parsed['net_type'] = gateway_parsed.version
+            elif params_parsed['net_type'] != gateway_parsed.version:
+                raise
+        except Exception as e:
+            logging.error("网关要求是合法的IPv{}地址，并且地址类型必须一致".format(params_parsed['net_type']))
+            return
+        if params_parsed['network'] is not None and gateway_parsed not in params_parsed['network']:
+            logging.error("网关不在指定的网段中")
+            return
+        params_parsed['gateway'] = gateway_parsed
+    else:
+        params_parsed['gateway'] = None
+    
+    starting_addr_entry = args.start
+    if starting_addr_entry is not None and starting_addr_entry != "":
+        starting_addr = None
+        try:
+            starting_addr = check_ipaddr(starting_addr_entry.strip())
+            if params_parsed['net_type'] == 0:
+                params_parsed['net_type'] = starting_addr.version
+            elif params_parsed['net_type'] != starting_addr.version:
+                raise
+        except Exception as e:
+            logging.error("起点地址要求是合法的IPv{}地址，并且地址类型必须一致".format(params_parsed['net_type']))
+            return
+        if params_parsed['network'] is not None and starting_addr not in params_parsed['network']:
+            logging.error("起点地址不在指定的网段中")
+            return
+        params_parsed['starting_addr'] = starting_addr
+    else:
+        params_parsed['starting_addr'] = None
+    
+    if args.dns is not None and args.dns != "-":
+        dns_addrs = ""
+        if args.dns == "":
+            if params_parsed['net_type'] == 6:
+                dns_addrs = '2001:4860:4860::8888,2001:4860:4860::8844'
+            elif params_parsed['net_type'] == 4:
+                dns_addrs = '114.114.114.114,1.2.4.8'
+            else:
+                logging.error("没有指定网络类型")
+                return
+        else:
+            dns_addrs = args.dns.strip()
+        dns_check = []
+        for dns in dns_addrs.split(","):
+            dns = dns.strip()
+            if dns == "":
+                continue
+            parsed = None
+            try:
+                parsed = check_ipaddr(dns.strip())
+                if params_parsed['net_type'] == 0:
+                    params_parsed['net_type'] = parsed.version
+                elif params_parsed['net_type'] != parsed.version:
+                    raise
+            except Exception as e:
+                logging.error("提供DNS地址要求是v{}版本，地址类型必须一致".format(params_parsed['net_type']))
+                return
+            dns_check.append(dns)
+        params_parsed['dns'] = ' '.join(dns_check)
+    else:
+        params_parsed['dns'] = None
+
+    if args.askpass:
+        password = getpass.getpass('Password:')
+        params_parsed['password'] = password
+    else:
+        params_parsed['password'] = None
+
+    if DEBUG:
+        pprint(params_parsed)
+    return params_parsed
+
+def parse_host(host, default_user='root', default_port=22):
+    """
+    Parses host entries of the form "[user@]host[:port]".
+    """
+    user = default_user
+    port = default_port
+    if '@' in host:
+        user, host = host.split('@', 1)
+    if ':' in host:
+        host, port = host.rsplit(':', 1)
+    return (host, port, user)
+
+def generate_tasks(params_parsed):
+    """
+    脚本功能：
+    1. 为每台机器配置v4/v6版本的IP地址，网关，DNS，以及以上三者之间的任意组合
+    2. 当参数中提供了网段时，就认为有机器配置IP地址，
+    """
+    cfgIPaddr = False
+    prefixlen = 0
+    if params_parsed['network']:
+        cfgIPaddr = True
+        prefixlen = params_parsed['network'].prefixlen
+    else:
+        if params_parsed['net_type'] == 6:
+            prefixlen = 128
+        if params_parsed['net_type'] == 4:
+            prefixlen = 32
+        else:
+            prefixlen = 32
+    gen_addr = generate_addrV2(params_parsed)
+    for host_info in params_parsed['pool']:
+        ipvx_addr = next(gen_addr)
+        if cfgIPaddr and ipvx_addr is None:
+            logging.error("提供的网段不够为所有主机分配IP地址")
+            break
+        task = {
+            "address": host_info['host_parsed'],
+            "ip_address": ipvx_addr,
+            "ip_netmask": prefixlen,
+            "ip_gateway": params_parsed['gateway'],
+            "ip_dns": params_parsed['dns'],
+            "device": params_parsed['device'],  # 将要在此接口上配置IP地址
+            "connection": params_parsed['cname'],
+            "net_type": params_parsed['net_type'],
+            "is_add": params_parsed['add'],
+            "is_sub": params_parsed['sub'],
+            "uuid": "",
+            "cmd_result": "",
+            "cmd_stderr": "",
+            "cmd_status": False,
+            "cmd": [],
+            "ssh_info": host_info,
+            "ssh_password": params_parsed['password'],
+            "cfgIPaddr": cfgIPaddr,
+            # "params_parsed": params_parsed
+        }
+        yield task
+    while True:
+        yield None
+
+async def runCommand(conn, cmd, task):
+    try:
+        cmd_resp = await conn.run(cmd)
+        if cmd_resp.returncode == 0:
+            task['cmd_result'] = str(cmd_resp.stdout)
+            task['cmd_status'] = True
+        else:
+            task['cmd_stderr'] = str(cmd_resp.stderr)
+            task['cmd_status'] = False
+    except asyncssh.ChannelOpenError as e:
+        task['cmd_stderr'] = str(e)
+        task['cmd_status'] = False
+    except asyncssh.TimeoutError as e:
+        task['cmd_stderr'] = str(e)
+        task['cmd_status'] = False
+    except asyncssh.ProcessError as e:
+        task['cmd_stderr'] = str(e)
+        task['cmd_status'] = False
+    except Exception as e:
+        task['cmd_stderr'] = str(e)
+        task['cmd_status'] = False
+
+async def doRemoteJob(task):
+    kwargs = {
+        'username': task['ssh_info']['user'],
+        'password': task['ssh_password'],
+        'port': int(task['ssh_info']['port']),
+    }
+    if task['ssh_password']:
+        kwargs['client_keys'] = None
+    async with await asyncio.wait_for(asyncssh.connect(str(task['address']), **kwargs), timeout=15) as conn:
+        nmcli_tags = ''
+        if task['connection'] is not None and task['connection'] != '':
+            nmcli_tags = task['connection']
+        else:
+            if task['device'] is not None and task['device'] != '':
+                cmd = 'nmcli device connect "{}"'.format(task['device'])
+            else:
+                cmd = "ip route get " + tmpl_address
+                task['cmd'].append(cmd)
+                await runCommand(conn, cmd, task)
+                if task['cmd_status'] is False:
+                    return
+                fields = task['cmd_result'].split()
+                if len(fields) < 5:
+                    task['cmd_stderr'] = "cmd response is error"
+                    task['cmd_status'] = False
+                    return
+                task['device'] = fields[4]
+                cmd = 'nmcli device connect "{}"'.format(task['device'])
+            task['cmd'].append(cmd)
+            await runCommand(conn, cmd, task)
+            try:
+                conn_uuid = task['cmd_result'].split()[-1].strip(".").strip("'")
+            except:
+                task['cmd_stderr'] = "get connection uuid of device %s error: %s" % (task['device'], task['cmd_stderr'])
+                task['cmd_status'] = False
+                return
+            if not re.match(r'[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}', conn_uuid):
+                task['cmd_stderr'] = "get connection uuid of device %s  error: %s" % task['cmd_stderr']
+                task['cmd_status'] = False
+                return
+            task['uuid'] = conn_uuid
+            nmcli_tags = conn_uuid
+        net_type = ""
+        if task['net_type'] == 6:
+            net_type = "ipv6"
+        elif task['net_type'] == 4:
+            net_type = "ipv4"
+        else:
+            task['cmd_stderr'] = "unknow net type: {}".format(task['net_type'])
+            task['cmd_status'] = False
+            return
+        net_type_action = net_type
+        if task['is_add']:
+            net_type_action = "+" + net_type
+        elif task['is_sub']:
+            net_type_action = "-" + net_type
+        cmd_unfinished = [
+            f'nmcli connection modify "{nmcli_tags}" {net_type}.method manual',
+        ]
+        if task['ip_address']:
+            if task['ip_netmask']:
+                cmd_unfinished.append('{}.addresses "{}/{}"'.format(net_type_action, str(task['ip_address']), task['ip_netmask']))
+            else:
+                cmd_unfinished.append('{}.addresses "{}"'.format(net_type_action, str(task['ip_address'])))
+        if task['ip_gateway']:
+            cmd_unfinished.append('{}.gateway "{}"'.format(net_type_action, task['ip_gateway']))
+        if task['ip_dns']:
+            cmd_unfinished.append('{}.dns "{}"'.format(net_type_action, task['ip_dns']))
+        if len(cmd_unfinished) == 1:
+            task['cmd_stderr'] = "cmd incomplete, skip"
+            task['cmd_status'] = False
+            return
+        cmd = ' '.join(cmd_unfinished)
+        task['cmd'].append(cmd)
+        await runCommand(conn, cmd, task)
+        if task['cmd_status'] is False:
+            return
+        cmd = 'nmcli connection reload'
+        task['cmd'].append(cmd)
+        await runCommand(conn, cmd, task)
+        if task['cmd_status'] is False:
+            return
+        cmd = 'nmcli connection up "{}"'.format(nmcli_tags)
+        task['cmd'].append(cmd)
+        await runCommand(conn, cmd, task)
+
+async def task_producer(atoTask, taskQueue, params_parsed):
+    for task in generate_tasks(params_parsed):
+        if task is None:
+            break
+        await taskQueue.put(task)
+    atoTask += 1
+
+async def task_customer(atoTask, atoResult, taskQueue, resultQueue):
+    while True:
+        try:
+            task = taskQueue.get_nowait()
+        except asyncio.QueueEmpty:
+            if atoTask.value != 0:
+                break
+            await asyncio.sleep(0.1)
+            continue
+        taskQueue.task_done()
+        try:
+            result = await doRemoteJob(task)
+        except (OSError, asyncssh.Error) as exc:
+            task['cmd_stderr'] = str(exc)
+            task['cmd_status'] = False
+            await resultQueue.put(task)
+            continue
+        except asyncio.TimeoutError as terr:
+            task['cmd_stderr'] = "coroutine wait timeout [15s]"
+            task['cmd_status'] = False
+            await resultQueue.put(task)
+            continue
+        except Exception as e:
+            task['cmd_stderr'] = str(e)
+            task['cmd_status'] = False
+            await resultQueue.put(task)
+            continue
+        task['cmd_result'] = result
+        await resultQueue.put(task)
+    atoResult += 1
+
+async def task_display(atoResult, customerNum, resultQueue):
+    global DEBUG
+    while True:
+        try:
+            result = resultQueue.get_nowait()
+        except asyncio.QueueEmpty:
+            if atoResult.value == customerNum:
+                break
+            await asyncio.sleep(0.1)
+            continue
+        if DEBUG is True:
+            pprint("Target: {}".format(result['address']) + "="*40)
+            pprint(result)
+            continue
+        if result['cmd_status']:
+            if result['cfgIPaddr']:
+                logging.warning("Target: \x1b[32m{}\x1b[0m, IP: \x1b[32m{}/{}\x1b[0m, Status: \x1b[34m{}\x1b[0m".format( 
+                    str(result['address']), 
+                    str(result['ip_address']), 
+                    result['ip_netmask'],
+                    result['cmd_status'],
+                ))    
+            else:
+                logging.warning("Target: \x1b[32m{}\x1b[0m, Status: \x1b[34m{}\x1b[0m".format( 
+                    str(result['address']), 
+                    result['cmd_status'],
+                ))
+        else:
+            logging.warning("Target: \x1b[32m{}\x1b[0m, Status: \x1b[33m{}\x1b[0m, Error: \x1b[91m{}\x1b[0m".format(
+                str(result['address']), 
+                result['cmd_status'],
+                result['cmd_stderr'],
+            ))
+        resultQueue.task_done()
+    
+async def work(loop, params_parsed, customerNum: uint8):
+    taskQueue = asyncio.Queue(maxsize=100)
+    resultQueue = asyncio.Queue(maxsize=100)
+
+    atoTask = AtomicLong(0)
+    atoResult = AtomicLong(0)
+
+    coroutines = []
+    
+    coroutines.append(loop.create_task(task_producer(atoTask, taskQueue, params_parsed)))
+    for _ in range(customerNum):
+        coroutines.append(loop.create_task(task_customer(atoTask, atoResult, taskQueue, resultQueue)))
+    coroutines.append(loop.create_task(task_display(atoResult, customerNum, resultQueue)))
+
+    done, pending = await asyncio.wait(coroutines, return_when=asyncio.FIRST_EXCEPTION)
+    for d in done:
+        if d.exception():
+            d.print_stack()
+    for p in pending:
+        p.cancel()
+
+def sorted_ipaddres(sorted_file):
+    content = read(sorted_file)
+    if not content:
+        return content
+    ipv4 = {}
+    ipv6 = {}
+    addrs_like = re.findall(r"(?<![:.\w])(?:[a-f0-9]{1,4}:){7}[a-f0-9]{1,4}(?![:.\w])|(?<![\.\d])(?:\d{1,3}\.){3}\d{1,3}(?![\.\d])", content, re.I)
+    for addr_like in addrs_like:
+        ip_parsed = check_ipaddr(addr_like.strip())
+        if not ip_parsed:
+            continue
+        if ip_parsed.version == 4:
+            ipv4[str(ip_parsed)] = ip_parsed
+        elif ip_parsed.version == 6:
+            ipv6[str(ip_parsed)] = ip_parsed
+
+    ipv4_merge = []
+    ipv6_merge = []
+    for _, ip_parsed in ipv4.items():
+        ipv4_merge.append(ip_parsed)
+    for _, ip_parsed in ipv6.items():
+        ipv6_merge.append(ip_parsed)
+    ipv4_sorted = sorted(ipv4_merge)
+    ipv6_sorted = sorted(ipv6_merge)
+    for ip_parsed in ipv4_sorted:
+        print(str(ip_parsed))
+    for ip_parsed in ipv6_sorted:
+        print(str(ip_parsed))
+    return True
+def do():
+    args = parse_argument()
+    if args.sort:
+        return sorted_ipaddres(args.sort)
+    params_parsed = parsed_params(args)
+    if not params_parsed:
+        return
+    event_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(event_loop)
+    try:
+        event_loop.run_until_complete(work(event_loop, params_parsed, args.concurrency))
+    except Exception as e:
+        logging.error("asyncio error: %s" % e)
+    finally:
+        event_loop.close()
+    return True
+
+if __name__ == "__main__":
+    if do():
+        sys.exit(0)
+    else:
+        sys.exit(1)
