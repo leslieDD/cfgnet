@@ -45,7 +45,7 @@ def parse_argument():
                 '默认v6的DNS是：2001:4860:4860::8888,2001:4860:4860::8844\n')
     parser.add_argument('-E', '--lexclude', type=str, default='', metavar='[ipaddress,...]', help='生成IP时，从中间排除的IP地址列表，以英文逗号分开')
     parser.add_argument('-F', '--fexclude', type=str, default='', metavar='filename', help='生成IP时，从中间排除的IP地址列表\n从文件读取，一行一个IP')
-    parser.add_argument('-e', '--eth', type=str, default='', metavar='eth name', help="网卡设备名称")
+    parser.add_argument('-e', '--eth', type=str, default='', metavar='eth_name', help="网卡设备名称")
     parser.add_argument('-c', '--cname', type=str, default='', metavar='nmcli_connection_name', help="nmcli的连接名称")
     parser.add_argument('--add', action='store_true', default=False, help="增加")
     parser.add_argument('--sub', action='store_true', default=False, help="减少")
