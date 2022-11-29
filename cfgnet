@@ -27,30 +27,32 @@ def parse_argument():
     parser = argparse.ArgumentParser(description='给服务器配置IP地址，IP的地址将会配置到出网网口上或者指定的网口或者连接上\n默认为替换，可以指定增加或者减少', 
         formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('-A', '--askpass', action='store_true', default=False, help="指定SSH密码")
-    parser.add_argument('-p', '--pool', type=str, default='', help='指定存地址池的文件名，一个IP一行，只支持v4')
+    parser.add_argument('-u', '--user', type=str, default='', metavar='username', help="指定SSH登录的用户名，当在-p指定的地址池中没有明确指定用户名时，使用此用户名")
+    parser.add_argument('-p', '--pool', type=str, default='', metavar='filename', help='指定存地址池的文件名，一个IP一行，只支持v4\n格式：[user@]host[:port]\n默认端口号22,用户名为root')
     parser.add_argument('--desc', action='store_true', default=False, help="降序（descending）排列由-A指定的地址池，默认是升序")
     parser.add_argument('--nsort', action='store_true', default=False, help="不排序由-A指定的地址池，默认是升序")
-    parser.add_argument('-m', '--manual', type=str, default='', help="手动指定生成地址的起点\n" + 
+    parser.add_argument('-m', '--manual', type=str, default='', metavar='ipaddress', help="手动指定生成地址的起点\n" + 
                 '以+开头，则由指定地址往高处列表' + 
                 '默认由指定地址往低数列表')
     parser.add_argument('-t', '--type', type=int, default=0, choices=[4, 6], help='指定地址类型，4(=v4)或者6(=v6)，默认根据其它选项的内容进行推测')
-    parser.add_argument('-n', '--network', type=str, default='', help='指定IP的网段，地址类型必须和选定的类型一致')
-    parser.add_argument('-g', '--gateway', type=str, default='', help='指定IP的网关，地址类型必须和选定的类型一致')
-    parser.add_argument('-s', '--start', type=str, default='', help="起点地址，地址类型必须和选定的类型一致")
-    parser.add_argument('-d', '--dns', type=str, default='', help='指定DNS地址，以英文逗号分隔\n' + 
+    parser.add_argument('-n', '--network', type=str, default='', metavar='network_address', help='指定IP的网段，地址类型必须和选定的类型一致')
+    parser.add_argument('-g', '--gateway', type=str, default='', metavar='gateway_address', help='指定IP的网关，地址类型必须和选定的类型一致')
+    parser.add_argument('-s', '--start', type=str, default='', metavar='ipaddress', help="起点地址，地址类型必须和选定的类型一致")
+    parser.add_argument('-d', '--dns', type=str, default='', metavar='[ipaddress,...]', help='指定DNS地址，以英文逗号分隔\n' + 
                 '如果内容为-，则不配置DNS\n' + 
                 '为空值时，会根据其它选择的地址类型选定默认的DNS值\n' + 
                 '默认v4的DNS是：114.114.114.114,1.2.4.8\n' +
                 '默认v6的DNS是：2001:4860:4860::8888,2001:4860:4860::8844\n')
-    parser.add_argument('-E', '--lexclude', type=str, default='', help='生成IP时，从中间排除的IP地址列表，以英文逗号分开')
-    parser.add_argument('-F', '--fexclude', type=str, default='', help='生成IP时，从中间排除的IP地址列表\n从文件读取，一行一个IP')
-    parser.add_argument('-e', '--eth', type=str, default='', help="网卡设备名称")
-    parser.add_argument('-c', '--cname', type=str, default='', help="nmcli的连接名称")
+    parser.add_argument('-E', '--lexclude', type=str, default='', metavar='[ipaddress,...]', help='生成IP时，从中间排除的IP地址列表，以英文逗号分开')
+    parser.add_argument('-F', '--fexclude', type=str, default='', metavar='filename', help='生成IP时，从中间排除的IP地址列表\n从文件读取，一行一个IP')
+    parser.add_argument('-e', '--eth', type=str, default='', metavar='eth name', help="网卡设备名称")
+    parser.add_argument('-c', '--cname', type=str, default='', metavar='nmcli_connection_name', help="nmcli的连接名称")
     parser.add_argument('--add', action='store_true', default=False, help="增加")
     parser.add_argument('--sub', action='store_true', default=False, help="减少")
-    parser.add_argument('-C', '--concurrency', type=int, default=6, help="并发数，默认为6")
+    parser.add_argument('-C', '--concurrency', type=int, default=6, metavar='number', help="并发数，默认为6")
     parser.add_argument('-I', '--ipaddr', action='store_true', default=False, help="只显示生成的IP地址与地址池（-p）的对应列表\n## 并不执行任务 ##")
-    parser.add_argument('-S', '--sort', type=str, help="过滤出指定文件中的IPv4/IPv6，并排序输出后退出程序")
+    parser.add_argument('-T', '--test', type=str, default='uname -a', metavar='command', help="尝试执行指定的简单的命令，并返回结果，并不会执行生成的配置任务")
+    parser.add_argument('-S', '--sort', type=str, metavar='filename', help="过滤出指定文件中的IPv4/IPv6，并排序输出后退出程序")
     parser.add_argument('-D', '--debug', action='store_true', default=False, help='输出详细日志')
     return parser.parse_args()
 
@@ -240,6 +242,8 @@ def parsed_params(args):
     params_parsed['manual_addr'] = args.manual.strip()
     params_parsed['base_num'] = 1
     params_parsed['manual_addr_parsed'] = None
+    params_parsed['user'] = args.user.strip()
+    params_parsed['test_cmd'] = args.test
 
     if args.pool is None:
         logging.error("需要指定地址池文件")
@@ -295,6 +299,11 @@ def parsed_params(args):
             logging.error("指定池{}中的IP不合法: {}".format(args.pool, c_host))
             return
         if c_host not in pool_hosts:
+            if c_user == '':
+                if params_parsed['user'] != '':
+                    c_user = params_parsed['user']
+                else:
+                    c_user = 'root'
             pool_hosts[c_host] = {
             'host': c_host,
             'port': c_port,
@@ -442,7 +451,7 @@ def parsed_params(args):
         pprint(params_parsed)
     return params_parsed
 
-def parse_host(host, default_user='root', default_port=22):
+def parse_host(host, default_user='', default_port=22):
     """
     Parses host entries of the form "[user@]host[:port]".
     """
@@ -534,6 +543,8 @@ async def doRemoteJob(task):
         'username': task['ssh_info']['user'],
         'password': task['ssh_password'],
         'port': int(task['ssh_info']['port']),
+        'known_hosts': None,
+        'client_keys': [],
     }
     if task['ssh_password']:
         kwargs['client_keys'] = None
@@ -687,7 +698,7 @@ async def task_display(atoResult, customerNum, resultQueue):
             logging.warning("target: \x1b[32m{}\x1b[0m, status: \x1b[33m{}\x1b[0m, error: \x1b[91m{}\x1b[0m".format(
                 str(result['address']), 
                 result['cmd_status'],
-                result['cmd_stderr'],
+                result['cmd_stderr'].strip(),
             ))
         resultQueue.task_done()
     
