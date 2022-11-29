@@ -14,15 +14,25 @@ from atomic import AtomicLong
 tmpl_address = "8.8.8.8"
 DEBUG=False
 
+
 logging.basicConfig(level=logging.WARNING,
-    format='%(asctime)s [%(lineno)d] %(levelname)s # %(message)s',
+    format='%(message)s',
     datefmt='%Y-%m-%d %M:%S')
+
+# logging.basicConfig(level=logging.WARNING,
+#     format='%(asctime)s [%(lineno)d] %(levelname)s # %(message)s',
+#     datefmt='%Y-%m-%d %M:%S')
 
 def parse_argument():
     parser = argparse.ArgumentParser(description='给服务器配置IP地址，IP的地址将会配置到出网网口上或者指定的网口或者连接上\n默认为替换，可以指定增加或者减少', 
         formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('-A', '--askpass', action='store_true', default=False, help="指定SSH密码")
     parser.add_argument('-p', '--pool', type=str, default='', help='指定存地址池的文件名，一个IP一行，只支持v4')
+    parser.add_argument('--desc', action='store_true', default=False, help="降序（descending）排列由-A指定的地址池，默认是升序")
+    parser.add_argument('--nsort', action='store_true', default=False, help="不排序由-A指定的地址池，默认是升序")
+    parser.add_argument('-m', '--manual', type=str, default='', help="手动指定生成地址的起点\n" + 
+                '以+开头，则由指定地址往高处列表' + 
+                '默认由指定地址往低数列表')
     parser.add_argument('-t', '--type', type=int, default=0, choices=[4, 6], help='指定地址类型，4(=v4)或者6(=v6)，默认根据其它选项的内容进行推测')
     parser.add_argument('-n', '--network', type=str, default='', help='指定IP的网段，地址类型必须和选定的类型一致')
     parser.add_argument('-g', '--gateway', type=str, default='', help='指定IP的网关，地址类型必须和选定的类型一致')
@@ -39,6 +49,7 @@ def parse_argument():
     parser.add_argument('--add', action='store_true', default=False, help="增加")
     parser.add_argument('--sub', action='store_true', default=False, help="减少")
     parser.add_argument('-C', '--concurrency', type=int, default=6, help="并发数，默认为6")
+    parser.add_argument('-I', '--ipaddr', action='store_true', default=False, help="只显示生成的IP地址与地址池（-p）的对应列表\n## 并不执行任务 ##")
     parser.add_argument('-S', '--sort', type=str, help="过滤出指定文件中的IPv4/IPv6，并排序输出后退出程序")
     parser.add_argument('-D', '--debug', action='store_true', default=False, help='输出详细日志')
     return parser.parse_args()
@@ -77,6 +88,35 @@ def check_ipaddr(addr):
     except Exception as e:
         return None
     return parsed
+
+def generate_user(params_parsed):
+    if not params_parsed['network']:
+        while True:
+            yield None
+    base_num = params_parsed['base_num']
+    base_addr = params_parsed['manual_addr_parsed']
+    def gen():
+        index = 0
+        while True:
+            try:
+                ipvx_addr = base_addr + index
+                index += base_num
+                if ipvx_addr >= params_parsed['network'].broadcast_address:
+                    break  # 已经超出广播地址
+                if ipvx_addr <= params_parsed['network'].network_address:
+                    break # 已经比网络地址更小
+                if ipvx_addr == params_parsed['gateway']:
+                    continue
+                for excludeIP in params_parsed['exclude']:
+                    if excludeIP == ipvx_addr:
+                        break
+                else:
+                    yield ipvx_addr
+            except:
+                break
+    yield from gen()
+    while True:
+        yield None
 
 def generate_addrV2(params_parsed):
     if not params_parsed['network']:
@@ -194,6 +234,12 @@ def parsed_params(args):
     params_parsed['add'] = args.add
     params_parsed['sub'] = args.sub
     params_parsed['askpass'] = args.askpass
+    params_parsed['display_ipaddr'] = args.ipaddr
+    params_parsed['order'] = args.desc
+    params_parsed['nsort'] = args.nsort
+    params_parsed['manual_addr'] = args.manual.strip()
+    params_parsed['base_num'] = 1
+    params_parsed['manual_addr_parsed'] = None
 
     if args.pool is None:
         logging.error("需要指定地址池文件")
@@ -262,7 +308,12 @@ def parsed_params(args):
     for _, val in pool_hosts.items():
         pool_parsed[val['host_parsed']] = val
     pool_parsed_sorted = []
-    for item in sorted(pool_parsed):
+    tmp_pool_data = None
+    if params_parsed['nsort']:
+        tmp_pool_data = pool_parsed
+    else:
+        tmp_pool_data = sorted(pool_parsed, reverse=params_parsed['order'])
+    for item in tmp_pool_data:
         pool_parsed_sorted.append(pool_parsed[item])
     params_parsed['pool'] = pool_parsed_sorted
 
@@ -322,6 +373,32 @@ def parsed_params(args):
         params_parsed['starting_addr'] = starting_addr
     else:
         params_parsed['starting_addr'] = None
+
+    if params_parsed['manual_addr'] != '':
+        if params_parsed['manual_addr'].startswith("+"):
+            params_parsed['base_num'] = 1
+            manual_addr = params_parsed['manual_addr'].lstrip('+').strip()
+        elif params_parsed['manual_addr'].startswith("-"):
+            params_parsed['base_num'] = -1
+            manual_addr = params_parsed['manual_addr'].lstrip('-').strip()
+        else:
+            params_parsed['base_num'] = -1
+            manual_addr = params_parsed['manual_addr'].strip()
+        try:
+            manual_addr_parsed = check_ipaddr(manual_addr)
+            if params_parsed['net_type'] == 0:
+                params_parsed['net_type'] = manual_addr_parsed.version
+            elif params_parsed['net_type'] != manual_addr_parsed.version:
+                raise
+        except Exception as e:
+            logging.error("手动指定的地址要求是合法的IPv{}地址，并且地址类型必须一致".format(params_parsed['net_type']))
+            return
+        if params_parsed['network'] is not None and manual_addr_parsed not in params_parsed['network']:
+            logging.error("手动指定的地址不在指定的网段中")
+            return
+        params_parsed['manual_addr_parsed'] = manual_addr_parsed
+    else:
+        params_parsed['manual_addr_parsed'] = None
     
     if args.dns is not None and args.dns != "-":
         dns_addrs = ""
@@ -395,7 +472,11 @@ def generate_tasks(params_parsed):
             prefixlen = 32
         else:
             prefixlen = 32
-    gen_addr = generate_addrV2(params_parsed)
+    gen_addr = None
+    if params_parsed['manual_addr_parsed']:
+        gen_addr = generate_user(params_parsed)
+    else:
+        gen_addr = generate_addrV2(params_parsed)
     for host_info in params_parsed['pool']:
         ipvx_addr = next(gen_addr)
         if cfgIPaddr and ipvx_addr is None:
@@ -538,6 +619,9 @@ async def task_producer(atoTask, taskQueue, params_parsed):
     for task in generate_tasks(params_parsed):
         if task is None:
             break
+        if params_parsed['display_ipaddr'] is True:
+            logging.warning("{} => {}".format(str(task['address']), str(task['ip_address'])))
+            continue
         await taskQueue.put(task)
     atoTask += 1
 
@@ -583,24 +667,24 @@ async def task_display(atoResult, customerNum, resultQueue):
             await asyncio.sleep(0.1)
             continue
         if DEBUG is True:
-            pprint("Target: {}".format(result['address']) + "="*40)
+            pprint("target: {}".format(result['address']) + "="*40)
             pprint(result)
             continue
         if result['cmd_status']:
             if result['cfgIPaddr']:
-                logging.warning("Target: \x1b[32m{}\x1b[0m, IP: \x1b[32m{}/{}\x1b[0m, Status: \x1b[34m{}\x1b[0m".format( 
+                logging.warning("target: \x1b[32m{}\x1b[0m, ip: \x1b[32m{}/{}\x1b[0m, status: \x1b[34m{}\x1b[0m".format( 
                     str(result['address']), 
                     str(result['ip_address']), 
                     result['ip_netmask'],
                     result['cmd_status'],
                 ))    
             else:
-                logging.warning("Target: \x1b[32m{}\x1b[0m, Status: \x1b[34m{}\x1b[0m".format( 
+                logging.warning("target: \x1b[32m{}\x1b[0m, status: \x1b[34m{}\x1b[0m".format( 
                     str(result['address']), 
                     result['cmd_status'],
                 ))
         else:
-            logging.warning("Target: \x1b[32m{}\x1b[0m, Status: \x1b[33m{}\x1b[0m, Error: \x1b[91m{}\x1b[0m".format(
+            logging.warning("target: \x1b[32m{}\x1b[0m, status: \x1b[33m{}\x1b[0m, error: \x1b[91m{}\x1b[0m".format(
                 str(result['address']), 
                 result['cmd_status'],
                 result['cmd_stderr'],
@@ -680,3 +764,4 @@ if __name__ == "__main__":
         sys.exit(0)
     else:
         sys.exit(1)
+

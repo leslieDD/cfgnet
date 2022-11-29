@@ -41,10 +41,11 @@ optional arguments:
                         并发数，默认为6
   -S SORT, --sort SORT  过滤出指定文件中的IPv4/IPv6，并排序输出后退出程序
   -D, --debug           输出详细日志
-
 ```
 
 #### 使用范例
+
+##### 配置IPV4
 
 ```bash
 root@diandianpc:/ipv6# ./cfgnet -p nodes -n 192.168.122.0/24 -s 192.168.122.10  -d '' --add
@@ -53,7 +54,8 @@ root@diandianpc:/ipv6# ./cfgnet -p nodes -n 192.168.122.0/24 -s 192.168.122.10  
 2022-09-29 50:38 [591] WARNING # Target: 10.10.40.10, IP: 192.168.122.13/24, Status: True
 2022-09-29 50:38 [591] WARNING # Target: 10.10.40.20, IP: 192.168.122.14/24, Status: True
 2022-09-29 50:52 [603] WARNING # Target: 1.1.1.1, Status: False, Error: coroutine wait timeout [15s]
-
 ```
+
+##### 批量配置ipv6
 
 
