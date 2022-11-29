@@ -51,7 +51,7 @@ def parse_argument():
     parser.add_argument('--sub', action='store_true', default=False, help="减少")
     parser.add_argument('-C', '--concurrency', type=int, default=6, metavar='number', help="并发数，默认为6")
     parser.add_argument('-I', '--ipaddr', action='store_true', default=False, help="只显示生成的IP地址与地址池（-p）的对应列表\n## 并不执行任务 ##")
-    parser.add_argument('-T', '--test', type=str, default='uname -a', metavar='command', help="尝试执行指定的简单的命令，并返回结果，并不会执行生成的配置任务")
+    parser.add_argument('-T', '--test', action='store_true', default=False, help="尝试执行指定的简单的命令，并返回结果，并不会执行生成的配置任务")
     parser.add_argument('-S', '--sort', type=str, metavar='filename', help="过滤出指定文件中的IPv4/IPv6，并排序输出后退出程序")
     parser.add_argument('-D', '--debug', action='store_true', default=False, help='输出详细日志')
     return parser.parse_args()
@@ -510,6 +510,7 @@ def generate_tasks(params_parsed):
             "ssh_info": host_info,
             "ssh_password": params_parsed['password'],
             "cfgIPaddr": cfgIPaddr,
+            "test_cmd": params_parsed['test_cmd'],
             # "params_parsed": params_parsed
         }
         yield task
@@ -549,6 +550,9 @@ async def doRemoteJob(task):
     if task['ssh_password']:
         kwargs['client_keys'] = None
     async with await asyncio.wait_for(asyncssh.connect(str(task['address']), **kwargs), timeout=15) as conn:
+        if task['test_cmd']:
+            await runCommand(conn, 'uptime', task)
+            return
         nmcli_tags = ''
         if task['connection'] is not None and task['connection'] != '':
             nmcli_tags = task['connection']
@@ -647,23 +651,16 @@ async def task_customer(atoTask, atoResult, taskQueue, resultQueue):
             continue
         taskQueue.task_done()
         try:
-            result = await doRemoteJob(task)
+            await doRemoteJob(task)
         except (OSError, asyncssh.Error) as exc:
             task['cmd_stderr'] = str(exc)
             task['cmd_status'] = False
-            await resultQueue.put(task)
-            continue
         except asyncio.TimeoutError as terr:
             task['cmd_stderr'] = "coroutine wait timeout [15s]"
             task['cmd_status'] = False
-            await resultQueue.put(task)
-            continue
         except Exception as e:
             task['cmd_stderr'] = str(e)
             task['cmd_status'] = False
-            await resultQueue.put(task)
-            continue
-        task['cmd_result'] = result
         await resultQueue.put(task)
     atoResult += 1
 
@@ -682,7 +679,16 @@ async def task_display(atoResult, customerNum, resultQueue):
             pprint(result)
             continue
         if result['cmd_status']:
-            if result['cfgIPaddr']:
+            if result['test_cmd']:
+                logging.warning("target: \x1b[32m{}\x1b[0m, ip: \x1b[32m{}/{}\x1b[0m, status: \x1b[34m{}\x1b[0m, stdout: \x1b[32m{}\x1b[0m, stderr: \x1b[91m{}\x1b[0m".format( 
+                    str(result['address']), 
+                    str(result['ip_address']), 
+                    result['ip_netmask'],
+                    result['cmd_status'],
+                    result['cmd_result'].strip(),
+                    result['cmd_stderr'].strip(),
+                ))
+            elif result['cfgIPaddr']:
                 logging.warning("target: \x1b[32m{}\x1b[0m, ip: \x1b[32m{}/{}\x1b[0m, status: \x1b[34m{}\x1b[0m".format( 
                     str(result['address']), 
                     str(result['ip_address']), 
