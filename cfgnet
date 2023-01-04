@@ -31,9 +31,8 @@ def parse_argument():
     parser.add_argument('-p', '--pool', type=str, default='', metavar='filename', help='指定存地址池的文件名，一个IP一行，只支持v4\n格式：[user@]host[:port]\n默认端口号22,用户名为root')
     parser.add_argument('--desc', action='store_true', default=False, help="降序（descending）排列由-A指定的地址池，默认是升序")
     parser.add_argument('--nsort', action='store_true', default=False, help="不排序由-A指定的地址池，默认是升序")
-    parser.add_argument('-m', '--manual', type=str, default='', metavar='ipaddress', help="手动指定生成地址的起点\n" + 
-                '以+开头，则由指定地址往高处列表' + 
-                '默认由指定地址往低数列表')
+    parser.add_argument('-m', '--manual-asc', type=str, default='', metavar='ipaddress', help="手动指定生成地址的起点，升序生成地址")
+    parser.add_argument('--manual-desc', type=str, default='', metavar='ipaddress', help="手动指定生成地址的起点，降序生成地址")
     parser.add_argument('-t', '--type', type=int, default=0, choices=[4, 6], help='指定地址类型，4(=v4)或者6(=v6)，默认根据其它选项的内容进行推测')
     parser.add_argument('-n', '--network', type=str, default='', metavar='network_address', help='指定IP的网段，地址类型必须和选定的类型一致')
     parser.add_argument('-g', '--gateway', type=str, default='', metavar='gateway_address', help='指定IP的网关，地址类型必须和选定的类型一致')
@@ -239,17 +238,15 @@ def parsed_params(args):
     params_parsed['display_ipaddr'] = args.ipaddr
     params_parsed['order'] = args.desc
     params_parsed['nsort'] = args.nsort
-    params_parsed['manual_addr'] = args.manual.strip()
-    params_parsed['base_num'] = 1
     params_parsed['manual_addr_parsed'] = None
     params_parsed['user'] = args.user.strip()
     params_parsed['test_cmd'] = args.test
 
     if args.pool is None:
-        logging.error("需要指定地址池文件")
+        logging.error("需要指定地址池文件，请使用-p指定")
         return
     if args.pool == '':
-        logging.error("指定了一个无效的地址池文件")
+        logging.error("指定了一个无效的地址池文件，请使用-p指定")
         return
 
     exclude = []
@@ -383,18 +380,19 @@ def parsed_params(args):
     else:
         params_parsed['starting_addr'] = None
 
+    params_parsed['manual_addr'] = ''
+    if args.manual_asc.strip() != '':
+        params_parsed['manual_addr'] = args.manual_asc.strip()
+        params_parsed['base_num'] = 1
+    elif args.manual_desc.strip() != '':
+        params_parsed['manual_addr'] = args.manual_desc.strip()
+        params_parsed['base_num'] = -1
+    else:
+        params_parsed['base_num'] = 1
+
     if params_parsed['manual_addr'] != '':
-        if params_parsed['manual_addr'].startswith("+"):
-            params_parsed['base_num'] = 1
-            manual_addr = params_parsed['manual_addr'].lstrip('+').strip()
-        elif params_parsed['manual_addr'].startswith("-"):
-            params_parsed['base_num'] = -1
-            manual_addr = params_parsed['manual_addr'].lstrip('-').strip()
-        else:
-            params_parsed['base_num'] = -1
-            manual_addr = params_parsed['manual_addr'].strip()
         try:
-            manual_addr_parsed = check_ipaddr(manual_addr)
+            manual_addr_parsed = check_ipaddr(params_parsed['manual_addr'])
             if params_parsed['net_type'] == 0:
                 params_parsed['net_type'] = manual_addr_parsed.version
             elif params_parsed['net_type'] != manual_addr_parsed.version:
@@ -545,7 +543,7 @@ async def doRemoteJob(task):
         'password': task['ssh_password'],
         'port': int(task['ssh_info']['port']),
         'known_hosts': None,
-        # 'client_keys': [],
+        'client_keys': [],
     }
     if task['ssh_password']:
         kwargs['client_keys'] = None
