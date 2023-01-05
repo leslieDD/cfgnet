@@ -24,7 +24,8 @@ logging.basicConfig(level=logging.WARNING,
 #     datefmt='%Y-%m-%d %M:%S')
 
 def parse_argument():
-    parser = argparse.ArgumentParser(description='给服务器配置IP地址，IP的地址将会配置到出网网口上或者指定的网口或者连接上\n默认为替换，可以指定增加或者减少', 
+    parser = argparse.ArgumentParser(description='给服务器配置IP地址，IP的地址将会配置到出网网口上或者指定的网口或者连接上\n默认为替换，可以指定增加或者减少\n' + 
+                                                '\033[41;37m在配置IP时，是否考虑加上--add参数，默认配置IP会覆盖原来的IP\033[0m', 
         formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('-A', '--askpass', action='store_true', default=False, help="指定SSH密码")
     parser.add_argument('-u', '--user', type=str, default='', metavar='username', help="指定SSH登录的用户名，当在-p指定的地址池中没有明确指定用户名时，使用此用户名")
