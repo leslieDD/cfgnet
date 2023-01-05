@@ -241,12 +241,19 @@ def parsed_params(args):
     params_parsed['manual_addr_parsed'] = None
     params_parsed['user'] = args.user.strip()
     params_parsed['test_cmd'] = args.test
+    params_parsed['manual_addr'] = ''  
 
     if args.pool is None:
         logging.error("需要指定地址池文件，请使用-p指定")
         return
     if args.pool == '':
         logging.error("指定了一个无效的地址池文件，请使用-p指定")
+        return
+    
+    manual_asc = args.manual_asc.strip()
+    manual_desc = args.manual_desc.strip()
+    if manual_asc != '' and manual_desc != '':
+        logging.error("--manual-asc和--manual-desc不能同时存在，只能选择其中一个")
         return
 
     exclude = []
@@ -379,13 +386,12 @@ def parsed_params(args):
         params_parsed['starting_addr'] = starting_addr
     else:
         params_parsed['starting_addr'] = None
-
-    params_parsed['manual_addr'] = ''
-    if args.manual_asc.strip() != '':
-        params_parsed['manual_addr'] = args.manual_asc.strip()
+   
+    if manual_asc != '':
+        params_parsed['manual_addr'] = manual_asc
         params_parsed['base_num'] = 1
-    elif args.manual_desc.strip() != '':
-        params_parsed['manual_addr'] = args.manual_desc.strip()
+    elif manual_desc != '':
+        params_parsed['manual_addr'] = manual_desc
         params_parsed['base_num'] = -1
     else:
         params_parsed['base_num'] = 1
