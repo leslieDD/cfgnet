@@ -18,6 +18,8 @@ logging.basicConfig(level=logging.WARNING,
                     format='%(message)s',
                     datefmt='%Y-%m-%d %M:%S')
 
+__version__ = "0.0.1"
+
 
 # logging.basicConfig(level=logging.WARNING,
 #     format='%(asctime)s [%(lineno)d] %(levelname)s # %(message)s',
@@ -70,6 +72,7 @@ def parse_argument():
     parser.add_argument('-S', '--sort', type=str, metavar='filename',
                         help="过滤出指定文件中的IPv4/IPv6，并排序输出后退出程序")
     parser.add_argument('-D', '--debug', action='store_true', default=False, help='输出详细日志')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + __version__)
     return parser.parse_args()
 
 
@@ -287,34 +290,28 @@ def parsed_params(args):
         return
 
     exclude = []
-    if args.lexclude is not None and args.lexclude != '':
-        for lexc_ip in args.lexclude.split(","):
-            lexc_ip = lexc_ip.strip()
-            parsed = check_ipaddr(lexc_ip)
-            if parsed is None:
-                logging.error("指定的排除地址不是合法的IP地址：%s" % lexc_ip)
-                return
-            if parsed.version != params_parsed['net_type']:
-                logging.error("指定的排除地址类型必须一致：%s" % str(parsed))
-                return
-            exclude.append(parsed)
 
-    if args.fexclude is not None and args.fexclude != '':
-        exclude_pool = read(args.fexclude)
+    def do_exclude(exclude_param):
+        if exclude_param is not None and exclude_param != '':
+            return
+        exclude_pool = read(exclude_param)
         if exclude_pool is None:
             return
-        for fexc_ip in exclude_pool.split():
-            fexc_ip = fexc_ip.strip()
-            if fexc_ip == "":
+        for exc_ip in exclude_pool.split():
+            exc_ip = exc_ip.strip()
+            if exc_ip == "":
                 continue
-            parsed = check_ipaddr(fexc_ip)
-            if parsed is None:
-                logging.error("指定的排除地址不是合法的IP地址：%s" % fexc_ip)
+            parsed_inner = check_ipaddr(exc_ip)
+            if parsed_inner is None:
+                logging.error("指定的排除地址不是合法的IP地址：%s" % exc_ip)
                 return
-            if parsed.version != params_parsed['net_type']:
-                logging.error("指定的排除地址类型必须一致：%s" % str(parsed))
+            if parsed_inner.version != params_parsed['net_type']:
+                logging.error("指定的排除地址类型必须一致：%s" % str(parsed_inner))
                 return
-            exclude.append(parsed)
+            exclude.append(parsed_inner)
+
+    do_exclude(args.lexclude)
+    do_exclude(args.fexclude)
     params_parsed['exclude'] = exclude
 
     pool_content = read(args.pool)
@@ -456,7 +453,11 @@ def parsed_params(args):
         else:
             dns_addrs = args.dns.strip()
         dns_check = []
-        for dns in dns_addrs.split(","):
+        if " " in dns_addrs:
+            dns_addrs_pool = dns_addrs.split()
+        else:
+            dns_addrs_pool = dns_addrs.split(",")
+        for dns in dns_addrs_pool:
             dns = dns.strip()
             if dns == "":
                 continue
@@ -513,7 +514,7 @@ def generate_tasks(params_parsed):
     else:
         if params_parsed['net_type'] == 6:
             prefix_len = 128
-        if params_parsed['net_type'] == 4:
+        elif params_parsed['net_type'] == 4:
             prefix_len = 32
         else:
             prefix_len = 32
@@ -577,7 +578,7 @@ async def run_command(conn, cmd, task):
         task['cmd_status'] = False
 
 
-async def doRemoteJob(task):
+async def do_remote_job(task):
     kwargs = {
         'username': task['ssh_info']['user'],
         'password': task['ssh_password'],
@@ -620,7 +621,7 @@ async def doRemoteJob(task):
                 return
             if not re.match(r'[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}', conn_uuid):
                 task['cmd_stderr'] = "get connection uuid of device %s  error: %s" % (
-                task['device'], task['cmd_stderr'])
+                    task['device'], task['cmd_stderr'])
                 task['cmd_status'] = False
                 return
             task['uuid'] = conn_uuid
@@ -693,7 +694,7 @@ async def task_customer(ato_task, ato_result, task_queue, result_queue):
             continue
         task_queue.task_done()
         try:
-            await doRemoteJob(task)
+            await do_remote_job(task)
         except (OSError, asyncssh.Error) as exc:
             task['cmd_stderr'] = str(exc)
             task['cmd_status'] = False
@@ -782,7 +783,7 @@ def sorted_ipaddres(sorted_file):
     ipv4 = {}
     ipv6 = {}
     addrs_like = re.findall(
-        r"(?<![:.\w])(?:[a-f0-9]{1,4}:){7}[a-f0-9]{1,4}(?![:.\w])|(?<![\.\d])(?:\d{1,3}\.){3}\d{1,3}(?![\.\d])",
+        r"(?<![:.\w])(?:[a-f0-9]{1,4}:){7}[a-f0-9]{1,4}(?![:.\w])|(?<![.\d])(?:\d{1,3}\.){3}\d{1,3}(?![.\d])",
         content, re.I)
     for addr_like in addrs_like:
         ip_parsed = check_ipaddr(addr_like.strip())
