@@ -714,7 +714,7 @@ async def task_display(ato_result, customer_num, result_queue):
             await asyncio.sleep(0.1)
             continue
         if DEBUG is True:
-            pprint("target: {}".format(result['address']) + "=" * 40)
+            print("target: \033[46;37m{}\x1b[0m ".format(result['address']))
             pprint(result)
             continue
         if result['cmd_status']:
