@@ -347,7 +347,6 @@ def parsed_params(args):
     for _, val in pool_hosts.items():
         pool_parsed[val['host_parsed']] = val
     pool_parsed_sorted = []
-    tmp_pool_data = None
     if params_parsed['nsort']:
         tmp_pool_data = pool_parsed
     else:
@@ -361,7 +360,6 @@ def parsed_params(args):
         if "/" not in network:
             logging.error("指定的网段必须包含掩码")
             return
-        network_parsed = None
         try:
             network_parsed = ipaddress.ip_network(network.strip())
             if params_parsed['net_type'] == 0:
@@ -377,7 +375,6 @@ def parsed_params(args):
 
     gateway = args.gateway
     if gateway is not None and gateway != '':
-        gateway_parsed = None
         try:
             gateway_parsed = check_ipaddr(gateway.strip())
             if params_parsed['net_type'] == 0:
@@ -396,7 +393,6 @@ def parsed_params(args):
 
     starting_addr_entry = args.start
     if starting_addr_entry is not None and starting_addr_entry != "":
-        starting_addr = None
         try:
             starting_addr = check_ipaddr(starting_addr_entry.strip())
             if params_parsed['net_type'] == 0:
@@ -440,7 +436,6 @@ def parsed_params(args):
         params_parsed['manual_addr_parsed'] = None
 
     if args.dns is not None and args.dns != "-":
-        dns_addrs = ""
         if args.dns == "":
             if params_parsed['net_type'] == 6:
                 dns_addrs = '2001:4860:4860::8888,2001:4860:4860::8844'
@@ -460,7 +455,6 @@ def parsed_params(args):
             dns = dns.strip()
             if dns == "":
                 continue
-            parsed = None
             try:
                 parsed = check_ipaddr(dns.strip())
                 if params_parsed['net_type'] == 0:
