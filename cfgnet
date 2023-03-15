@@ -292,7 +292,7 @@ def parsed_params(args):
     exclude = []
 
     def do_exclude(exclude_param):
-        if exclude_param is not None and exclude_param != '':
+        if exclude_param is None or exclude_param == '':
             return
         exclude_pool = read(exclude_param)
         if exclude_pool is None:
