@@ -77,7 +77,6 @@ def parse_argument():
 
 
 def read(filename):
-    content = ""
     try:
         with open(filename, encoding="utf8", mode='r') as fd:
             content = fd.read()
@@ -153,7 +152,6 @@ def generate_addr_v2(params_parsed):
             yield None
 
     def gen_asc():
-        base_addr = None
         if params_parsed['starting_addr'] is not None:
             base_addr = params_parsed['starting_addr']
         elif params_parsed['gateway'] is not None:
@@ -178,7 +176,6 @@ def generate_addr_v2(params_parsed):
                 break
 
     def gen_desc():
-        base_addr = None
         if params_parsed['starting_addr'] is not None:
             base_addr = params_parsed['starting_addr']
         elif params_parsed['gateway'] is not None:
@@ -220,7 +217,6 @@ def generate_addr_v1(params_parsed):
         while True:
             yield None
 
-    base_addr = None
     if params_parsed['starting_addr'] is not None:
         base_addr = params_parsed['starting_addr']
     else:
@@ -291,10 +287,13 @@ def parsed_params(args):
 
     exclude = []
 
-    def do_exclude(exclude_param):
+    def do_exclude(exclude_param, do_read):
         if exclude_param is None or exclude_param == '':
             return
-        exclude_pool = read(exclude_param)
+        if do_read:
+            exclude_pool = read(exclude_param)
+        else:
+            exclude_pool = exclude_param
         if exclude_pool is None:
             return
         for exc_ip in exclude_pool.split():
@@ -310,8 +309,8 @@ def parsed_params(args):
                 return
             exclude.append(parsed_inner)
 
-    do_exclude(args.lexclude)
-    do_exclude(args.fexclude)
+    do_exclude(args.lexclude, False)
+    do_exclude(args.fexclude, True)
     params_parsed['exclude'] = exclude
 
     pool_content = read(args.pool)
@@ -507,10 +506,9 @@ def generate_tasks(params_parsed):
     2. 当参数中提供了网段时，就认为有机器配置IP地址，
     """
     cfg_ipaddr = False
-    prefix_len = 0
     if params_parsed['network']:
         cfg_ipaddr = True
-        prefix_len = params_parsed['network'].prefix_len
+        prefix_len = params_parsed['network'].prefixlen
     else:
         if params_parsed['net_type'] == 6:
             prefix_len = 128
@@ -518,7 +516,6 @@ def generate_tasks(params_parsed):
             prefix_len = 32
         else:
             prefix_len = 32
-    gen_addr = None
     if params_parsed['manual_addr_parsed']:
         gen_addr = generate_user(params_parsed)
     else:
@@ -592,7 +589,6 @@ async def do_remote_job(task):
         if task['test_cmd']:
             await run_command(conn, 'uptime', task)
             return
-        nmcli_tags = ''
         if task['connection'] is not None and task['connection'] != '':
             nmcli_tags = task['connection']
         else:
@@ -626,7 +622,6 @@ async def do_remote_job(task):
                 return
             task['uuid'] = conn_uuid
             nmcli_tags = conn_uuid
-        net_type = ""
         if task['net_type'] == 6:
             net_type = "ipv6"
         elif task['net_type'] == 4:
