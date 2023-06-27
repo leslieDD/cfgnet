@@ -64,6 +64,7 @@ def parse_argument():
     parser.add_argument('-c', '--cname', type=str, default='', metavar='nmcli_connection_name', help="nmcli的连接名称")
     parser.add_argument('--add', action='store_true', default=False, help="增加")
     parser.add_argument('--sub', action='store_true', default=False, help="减少")
+    parser.add_argument('--noup', action='store_true', default=False, help="不执行UP操作")
     parser.add_argument('-C', '--concurrency', type=int, default=6, metavar='number', help="并发数，默认为6")
     parser.add_argument('-I', '--ipaddr', action='store_true', default=False,
                         help="只显示生成的IP地址与地址池（-p）的对应列表\n## 并不执行任务 ##")
@@ -270,6 +271,7 @@ def parsed_params(args):
         'user': args.user.strip(),
         'test_cmd': args.test,
         'manual_addr': '',
+        'no_up': args.noup,
     }
 
     if args.pool is None:
@@ -540,6 +542,7 @@ def generate_tasks(params_parsed):
             "cfg_ipaddr": cfg_ipaddr,
             "test_cmd": params_parsed['test_cmd'],
             # "params_parsed": params_parsed
+            "no_up": params_parsed['no_up'],
         }
         yield task
     while True:
@@ -656,9 +659,10 @@ async def do_remote_job(task):
         await run_command(conn, cmd, task)
         if task['cmd_status'] is False:
             return
-        cmd = 'nmcli connection up "{}"'.format(nmcli_tags)
-        task['cmd'].append(cmd)
-        await run_command(conn, cmd, task)
+        if not task['no_up']:
+            cmd = 'nmcli connection up "{}"'.format(nmcli_tags)
+            task['cmd'].append(cmd)
+            await run_command(conn, cmd, task)
 
 
 async def task_producer(ato_task, task_queue, params_parsed):
