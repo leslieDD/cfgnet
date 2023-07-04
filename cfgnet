@@ -607,18 +607,17 @@ async def do_remote_job(task):
             task['cmd'].append(cmd)
             await run_command(conn, cmd, task)
             try:
-                conn_uuid = task['cmd_result'].split()[-1].strip(".").strip("'")
+                conn_uuid_find = re.findall(r'([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})', task['cmd_result'])
+                if len(conn_uuid_find) == 0:
+                    task['cmd_stderr'] = "get uuid of device %s error: %s" % (task['device'], task['cmd_stderr'])
+                    task['cmd_status'] = False
+                    return
+                task['uuid'] = conn_uuid_find[0]
+                nmcli_tags = conn_uuid_find[0]
             except:
                 task['cmd_stderr'] = "get connection uuid of device %s error: %s" % (task['device'], task['cmd_stderr'])
                 task['cmd_status'] = False
                 return
-            if not re.match(r'[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}', conn_uuid):
-                task['cmd_stderr'] = "get connection uuid of device %s  error: %s" % (
-                    task['device'], task['cmd_stderr'])
-                task['cmd_status'] = False
-                return
-            task['uuid'] = conn_uuid
-            nmcli_tags = conn_uuid
         if task['net_type'] == 6:
             net_type = "ipv6"
         elif task['net_type'] == 4:
