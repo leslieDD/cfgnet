@@ -615,7 +615,7 @@ async def do_remote_job(task):
                 task['uuid'] = conn_uuid_find[0]
                 nmcli_tags = conn_uuid_find[0]
             except:
-                task['cmd_stderr'] = "get connection uuid of device %s error: %s" % (task['device'], task['cmd_stderr'])
+                task['cmd_stderr'] = "get uuid of device %s error: %s" % (task['device'], task['cmd_stderr'])
                 task['cmd_status'] = False
                 return
         if task['net_type'] == 6:
