@@ -5,6 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="9a5d1d65-cf13-4d88-ad5e-59e28f8a3960" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cfgnet" beforeDir="false" afterPath="$PROJECT_DIR$/cfgnet" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -28,7 +29,7 @@
     &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
     &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
     &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
-    &quot;last_opened_file_path&quot;: &quot;/home/diandian/python/polaris-gslb&quot;,
+    &quot;last_opened_file_path&quot;: &quot;/home/diandian/python/95&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
     &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
@@ -55,7 +56,9 @@
       <workItem from="1684215216551" duration="5000" />
       <workItem from="1684493793498" duration="2264000" />
       <workItem from="1687843175278" duration="3769000" />
-      <workItem from="1688463572315" duration="1983000" />
+      <workItem from="1688463572315" duration="4779000" />
+      <workItem from="1689317602264" duration="2114000" />
+      <workItem from="1689835914753" duration="411000" />
     </task>
     <servers />
   </component>
