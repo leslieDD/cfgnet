@@ -9,6 +9,7 @@ import getpass
 from pprint import pprint
 from pickletools import uint8
 import asyncssh
+from termcolor import colored
 from atomic import AtomicLong
 
 tmpl_address = "8.8.8.8"
@@ -24,6 +25,25 @@ __version__ = "0.0.1"
 # logging.basicConfig(level=logging.WARNING,
 #     format='%(asctime)s [%(lineno)d] %(levelname)s # %(message)s',
 #     datefmt='%Y-%m-%d %M:%S')
+
+def example():
+    print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置上地址,会覆盖旧的所有地址', 'blue'))
+    print(colored('./cfgnet -p hosts -n 10.30.200.0/24', 'yellow'))
+    print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置上地址和网关,会覆盖旧的所有地址', 'blue'))
+    print(colored('./cfgnet -p hosts -n 10.30.200.0/24 -g 10.30.200.1', 'yellow'))
+    print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置上地址,会覆盖旧的所有地址,并排除10.30.200.1地址', 'blue'))
+    print(colored('./cfgnet -p hosts -n 10.30.200.0/24 -E 10.30.200.1', 'yellow'))
+    print(colored('# 只打印地址对应结果', 'blue'))
+    print(colored('./cfgnet -p hosts -n 10.30.200.0/24 -I', 'yellow'))
+    print(colored('# 打印详细的执行结果', 'blue'))
+    print(colored('./cfgnet -p hosts -n 10.30.200.0/24 -D', 'yellow'))
+    print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置网关', 'blue'))
+    print(colored('./cfgnet -p hosts -g 10.30.200.1', 'yellow'))
+    print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置新地址', 'blue'))
+    print(colored('./cfgnet -p hosts -n 10.30.200.0/24 --add', 'yellow'))
+    print(colored('# 尝试识别文件中的IP地址,排序结果并输出', 'blue'))
+    print(colored('./cfgnet -S addr_file', 'yellow'))
+
 
 def parse_argument():
     parser = argparse.ArgumentParser(
@@ -74,7 +94,12 @@ def parse_argument():
                         help="过滤出指定文件中的IPv4/IPv6，并排序输出后退出程序")
     parser.add_argument('-D', '--debug', action='store_true', default=False, help='输出详细日志')
     parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + __version__)
-    return parser.parse_args()
+    sub_command = parser.add_subparsers()
+    cmd_example = sub_command.add_parser('example', help='list top 20 by app')
+
+    cmd_example.set_defaults(func=example)
+    options = parser.parse_args()
+    return options
 
 
 def read(filename):
@@ -806,6 +831,9 @@ def sorted_ipaddres(sorted_file):
 
 def do():
     args = parse_argument()
+    if hasattr(args, 'func'):
+        args.func()
+        return True
     if args.sort:
         return sorted_ipaddres(args.sort)
     params_parsed = parsed_params(args)
