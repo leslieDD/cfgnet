@@ -305,15 +305,11 @@ def parsed_params(args):
             parsed_inner = check_ipaddr(exc_ip)
             if parsed_inner is None:
                 logging.error("指定的排除地址不是合法的IP地址：%s" % exc_ip)
-                return
+                return False
             if parsed_inner.version != params_parsed['net_type']:
                 logging.error("指定的排除地址类型必须一致：%s" % str(parsed_inner))
-                return
+                return False
             exclude.append(parsed_inner)
-
-    do_exclude(args.lexclude, False)
-    do_exclude(args.fexclude, True)
-    params_parsed['exclude'] = exclude
 
     pool_content = read(args.pool)
     if pool_content is None:
@@ -471,6 +467,12 @@ def parsed_params(args):
     else:
         params_parsed['dns'] = None
 
+    if do_exclude(args.lexclude, False) is False:
+        return
+    if do_exclude(args.fexclude, True) is False:
+        return
+    params_parsed['exclude'] = exclude
+
     if args.askpass:
         password = getpass.getpass('Password:')
         params_parsed['password'] = password
@@ -578,7 +580,7 @@ async def do_remote_job(task):
         'password': task['ssh_password'],
         'port': int(task['ssh_info']['port']),
         'known_hosts': None,
-        # 'client_keys': [],
+        'client_keys': [],
     }
     if task['ssh_password']:
         kwargs['client_keys'] = None
@@ -607,17 +609,18 @@ async def do_remote_job(task):
             task['cmd'].append(cmd)
             await run_command(conn, cmd, task)
             try:
-                conn_uuid_find = re.findall(r'([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})', task['cmd_result'])
-                if len(conn_uuid_find) == 0:
-                    task['cmd_stderr'] = "get uuid of device %s error: %s" % (task['device'], task['cmd_stderr'])
-                    task['cmd_status'] = False
-                    return
-                task['uuid'] = conn_uuid_find[0]
-                nmcli_tags = conn_uuid_find[0]
+                conn_uuid = task['cmd_result'].split()[-1].strip(".").strip("'")
             except:
-                task['cmd_stderr'] = "get uuid of device %s error: %s" % (task['device'], task['cmd_stderr'])
+                task['cmd_stderr'] = "get connection uuid of device %s error: %s" % (task['device'], task['cmd_stderr'])
                 task['cmd_status'] = False
                 return
+            if not re.match(r'[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}', conn_uuid):
+                task['cmd_stderr'] = "get connection uuid of device %s  error: %s" % (
+                    task['device'], task['cmd_stderr'])
+                task['cmd_status'] = False
+                return
+            task['uuid'] = conn_uuid
+            nmcli_tags = conn_uuid
         if task['net_type'] == 6:
             net_type = "ipv6"
         elif task['net_type'] == 4:
@@ -632,7 +635,7 @@ async def do_remote_job(task):
         elif task['is_sub']:
             net_type_action = "-" + net_type
         cmd_unfinished = [
-            f'nmcli connection modify "{nmcli_tags}"',
+            f'nmcli connection modify "{nmcli_tags}" {net_type}.method manual',
         ]
         if task['ip_address']:
             if task['ip_netmask']:
@@ -640,7 +643,6 @@ async def do_remote_job(task):
                     '{}.addresses "{}/{}"'.format(net_type_action, str(task['ip_address']), task['ip_netmask']))
             else:
                 cmd_unfinished.append('{}.addresses "{}"'.format(net_type_action, str(task['ip_address'])))
-            cmd_unfinished.append(f'{net_type}.method manual')
         if task['ip_gateway']:
             cmd_unfinished.append('{}.gateway "{}"'.format(net_type_action, task['ip_gateway']))
         if task['ip_dns']:
