@@ -98,7 +98,7 @@ def parse_argument():
     parser.add_argument('-D', '--debug', action='store_true', default=False, help='输出详细日志')
     parser.add_argument('-v', '--version', action='version', version='%(prog)s ' + __version__)
     sub_command = parser.add_subparsers()
-    cmd_example = sub_command.add_parser('example', help='list top 20 by app')
+    cmd_example = sub_command.add_parser('example', help='显示一些命令使用实例')
 
     cmd_example.set_defaults(func=example)
     options = parser.parse_args()
