@@ -28,21 +28,23 @@ __version__ = "0.0.1"
 
 def example():
     print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置上地址,会覆盖旧的所有地址', 'blue'))
-    print(colored('./cfgnet -p hosts -n 10.30.200.0/24', 'yellow'))
+    print(colored('./cfgnet.py -p hosts -n 10.30.200.0/24', 'yellow'))
     print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置上地址和网关,会覆盖旧的所有地址', 'blue'))
-    print(colored('./cfgnet -p hosts -n 10.30.200.0/24 -g 10.30.200.1', 'yellow'))
+    print(colored('./cfgnet.py -p hosts -n 10.30.200.0/24 -g 10.30.200.1', 'yellow'))
     print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置上地址,会覆盖旧的所有地址,并排除10.30.200.1地址', 'blue'))
-    print(colored('./cfgnet -p hosts -n 10.30.200.0/24 -E 10.30.200.1', 'yellow'))
+    print(colored('./cfgnet.py -p hosts -n 10.30.200.0/24 -E 10.30.200.1', 'yellow'))
     print(colored('# 只打印地址对应结果', 'blue'))
-    print(colored('./cfgnet -p hosts -n 10.30.200.0/24 -I', 'yellow'))
+    print(colored('./cfgnet.py -p hosts -n 10.30.200.0/24 -I', 'yellow'))
     print(colored('# 打印详细的执行结果', 'blue'))
-    print(colored('./cfgnet -p hosts -n 10.30.200.0/24 -D', 'yellow'))
+    print(colored('./cfgnet.py -p hosts -n 10.30.200.0/24 -D', 'yellow'))
     print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置网关', 'blue'))
-    print(colored('./cfgnet -p hosts -g 10.30.200.1', 'yellow'))
+    print(colored('./cfgnet.py -p hosts -g 10.30.200.1', 'yellow'))
     print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置新地址', 'blue'))
-    print(colored('./cfgnet -p hosts -n 10.30.200.0/24 --add', 'yellow'))
+    print(colored('./cfgnet.py -p hosts -n 10.30.200.0/24 --add', 'yellow'))
     print(colored('# 尝试识别文件中的IP地址,排序结果并输出', 'blue'))
-    print(colored('./cfgnet -S addr_file', 'yellow'))
+    print(colored('./cfgnet.py -S addr_file', 'yellow'))
+    print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置新地址，没有设定网关，跳过DNS，指定分配起始地址', 'blue'))
+    print(colored('./cfgnet.py -p hosts -n 10.30.220.0/24 -s 10.30.220.100 -d '' --add', 'yellow'))
 
 
 def parse_argument():
@@ -605,7 +607,7 @@ async def do_remote_job(task):
         'password': task['ssh_password'],
         'port': int(task['ssh_info']['port']),
         'known_hosts': None,
-        'client_keys': [],
+        #'client_keys': [],
     }
     if task['ssh_password']:
         kwargs['client_keys'] = None
