@@ -608,7 +608,7 @@ async def do_remote_job(task):
         'password': task['ssh_password'],
         'port': int(task['ssh_info']['port']),
         'known_hosts': None,
-        #'client_keys': [],
+        # 'client_keys': [],
     }
     if task['ssh_password']:
         kwargs['client_keys'] = None
