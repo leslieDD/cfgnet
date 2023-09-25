@@ -43,6 +43,8 @@ def example():
     print(colored('./cfgnet.py -p hosts -n 10.30.200.0/24 --add', 'yellow'))
     print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置新地址，没有设定网关，跳过DNS，指定分配起始地址', 'blue'))
     print(colored('./cfgnet.py -p hosts -n 10.30.220.0/24 -s 10.30.220.100 -d "" --add', 'yellow'))
+    print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置上ipv6地址,会覆盖旧的所有地址', 'blue'))
+    print(colored('./cfgnet.py -p hosts -t 6 -n 2201:8aab:7be1:200::/56 -g 2201:8aab:7be1:200::1', 'yellow'))
 
     print(colored('# 尝试识别文件中的IP地址,排序结果并输出', 'blue'))
     print(colored('./cfgnet.py -S addr_file', 'yellow'))
