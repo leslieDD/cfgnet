@@ -80,7 +80,8 @@ def parse_argument():
                              '如果内容为-，则不配置DNS\n' +
                              '为空值时，会根据其它选择的地址类型选定默认的DNS值\n' +
                              '默认v4的DNS是：114.114.114.114,1.2.4.8\n' +
-                             '默认v6的DNS是：2001:4860:4860::8888,2001:4860:4860::8844\n')
+                             '默认v6的DNS是：2001:4860:4860::8888,2001:4860:4860::8844\n' +
+                             '阿里v6的DNS是：2400:3200::1,2400:3200:baba::1\n')
     parser.add_argument('-E', '--lexclude', type=str, default='', metavar='[ipaddress,...]',
                         help='生成IP时，从中间排除的IP地址列表，以英文逗号分开')
     parser.add_argument('-F', '--fexclude', type=str, default='', metavar='filename',
