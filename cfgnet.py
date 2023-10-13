@@ -45,6 +45,12 @@ def example():
     print(colored('./cfgnet.py -p hosts -n 10.30.220.0/24 -s 10.30.220.100 -d "" --add', 'yellow'))
     print(colored('# 给文件hosts中的所有主机 (网关所在网络接口) 配置上ipv6地址,会覆盖旧的所有地址', 'blue'))
     print(colored('./cfgnet.py -p hosts -t 6 -n 2201:8aab:7be1:200::/56 -g 2201:8aab:7be1:200::1', 'yellow'))
+    print(colored('# 只配置IPV6的DNS', 'blue'))
+    print(colored('./cfgnet.py -p hosts -t 6', 'yellow'))
+    print(colored('./cfgnet.py -p hosts -t 6 -d "2400:3200::1,2400:3200:baba::1"', 'yellow'))
+    print(colored('# 只配置IPV4的DNS', 'blue'))
+    print(colored('./cfgnet.py -p hosts -t 4', 'yellow'))
+    print(colored('./cfgnet.py -p hosts -t 4 -d "114.114.114.114"', 'yellow'))
 
     print(colored('# 尝试识别文件中的IP地址,排序结果并输出', 'blue'))
     print(colored('./cfgnet.py -S addr_file', 'yellow'))
