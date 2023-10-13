@@ -5,7 +5,6 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="9a5d1d65-cf13-4d88-ad5e-59e28f8a3960" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/cfgnet.py" beforeDir="false" afterPath="$PROJECT_DIR$/cfgnet.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
@@ -75,7 +74,7 @@
       <workItem from="1695101534892" duration="2147000" />
       <workItem from="1695618110356" duration="1999000" />
       <workItem from="1696928633360" duration="1335000" />
-      <workItem from="1697176713039" duration="1100000" />
+      <workItem from="1697176713039" duration="1335000" />
     </task>
     <servers />
   </component>
